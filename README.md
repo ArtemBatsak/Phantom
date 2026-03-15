@@ -18,7 +18,7 @@ Once connected, Phantom receives incoming traffic through the gateway and forwar
 
 ![Architecture](images/architecture.png)
 
-##Connection flow
+## Connection flow
 
 Phantom establishes a persistent outbound connection to Obelisk.
 
