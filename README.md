@@ -118,7 +118,9 @@ The recommended value is 1, which is sufficient for most scenarios with low or m
 
 If you expect frequent or highly concurrent client connections, increasing this value may improve responsiveness by reducing the time required to establish new transport connections.
 
-##Project Structure
+## Project Structure
 src/            source code
+
 vcpkg.json      dependency manifest
+
 CMakeLists.txt  build configuration
