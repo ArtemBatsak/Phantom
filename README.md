@@ -107,9 +107,13 @@ connection pool size
 #Example parameters:
 
 obelisk_host = example.com
+
 control_port = 44555
+
 local_host = 127.0.0.1
+
 local_port = 55555
+
 connection_pool = 1 
 
 Specifies the number of pre-established sockets maintained in the connection pool.
