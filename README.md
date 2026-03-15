@@ -94,16 +94,20 @@ CMake 3.16+
 
 vcpkg
 
-##Configuration
+## Configuration
 
 Example parameters:
 
 SERVER_IP = example.com
 
 LOCAL_IP = 127.0.0.1
+
 CONTROL_PORT = 4455
+
 LOCAL_PORT = 55555
+
 ID_CLIENT = 1234567
+
 POOL_SIZE = **1**
 
 Specifies the number of pre-established sockets maintained in the connection pool.
