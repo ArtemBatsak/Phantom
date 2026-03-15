@@ -34,7 +34,7 @@ Phantom connects to the configured local server
 
 data flows between both endpoints.
 
-##Key Features
+## Key Features
 
 Reverse proxy for services behind NAT
 
@@ -48,7 +48,7 @@ Designed for low resource usage
 
 Simple architecture
 
-##Security Model
+## Security Model
 
 The control connection between Phantom and Obelisk is protected using TLS.
 
@@ -64,7 +64,7 @@ minimizes latency
 
 assumes the local network environment is already trusted or protected.
 
-##Use Cases##
+## Use Cases
 
 Home-hosted game servers
 
@@ -72,7 +72,7 @@ Run high-performance servers at home while using a cheap VPS as a public gateway
 
 Dependencies
 
-##Phantom relies on several well-known C++ libraries:
+## Phantom relies on several well-known C++ libraries:
 
 Asio
 
@@ -106,7 +106,7 @@ local server address
 
 connection pool size
 
-##Example parameters:
+## Example parameters:
 
 obelisk_host = example.com
 
