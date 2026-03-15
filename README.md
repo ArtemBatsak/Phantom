@@ -16,7 +16,7 @@ Once connected, Phantom receives incoming traffic through the gateway and forwar
 
 ## Architecture
 
-![Architecture](images/architecture.png)
+![Architecture](docs/Architecture.png)
 
 ## Connection flow
 
