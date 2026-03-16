@@ -50,7 +50,7 @@ void create_client(std::shared_ptr<asio::ssl::stream<tcp::socket>> ssl_sock,
 Config start_up();
 
 int main() {
-
+	// Initialize logging and create/load configuration
     init_logging();
     spdlog::info("Client starting up...");
     const Config config = start_up();
@@ -77,7 +77,7 @@ int main() {
             tcp::resolver resolver(io);
             auto endpoints = resolver.resolve(config.SERVER_IP, std::to_string(config.CONTROL_PORT));
 
-           
+			// Connect to the server and perform SSL handshake
             asio::async_connect(ssl_sock->lowest_layer(), endpoints,
                 [ssl_sock, &io, config](const asio::error_code& ec, const tcp::endpoint&) {
                     if (ec) {
@@ -85,7 +85,7 @@ int main() {
                         return;
                     }
 
-                  
+					// handshake with the server
                     ssl_sock->async_handshake(asio::ssl::stream_base::client,
                         [ssl_sock, &io, config](const asio::error_code& ec) {
                             if (ec) {
@@ -100,7 +100,7 @@ int main() {
                             (*req_buf)[0] = htonl(config.ID_CLIENT);
                             (*req_buf)[1] = htonl(config.POOL_SIZE);
 
-                            
+							// Send authorization request to the server
                             asio::async_write(*ssl_sock, asio::buffer(*req_buf),
                                 [ssl_sock, req_buf, &io, config](const asio::error_code& ec, std::size_t) {
                                     if (ec) {
@@ -108,7 +108,7 @@ int main() {
                                         return;
                                     }
 
-
+									// Wait for server response containing assigned ports
                                     auto resp_buf = std::make_shared<std::array<uint32_t, 3>>();
                                     asio::async_read(*ssl_sock, asio::buffer(*resp_buf),
                                         [ssl_sock, resp_buf, &io, config](const asio::error_code& ec, std::size_t bytes_read) {
@@ -125,7 +125,9 @@ int main() {
                                                 spdlog::error("Authorization failed: server returned ID {}, expected {}", server_id, config.ID_CLIENT);
                                                 return;
                                             }
+
                                             spdlog::info("Authorized with server. Assigned client port: {}, data port: {}", client_port, data_port);
+											// Create client instance to handle communication with the server
                                             create_client(ssl_sock, data_port, client_port, io, config);
                                         });
                                 });
@@ -137,6 +139,7 @@ int main() {
         catch (const std::exception& e) {
             spdlog::error("Exception: {}", e.what());
         }
+		// Wait before retrying connection to the server
         std::this_thread::sleep_for(std::chrono::seconds(5));
     }
     

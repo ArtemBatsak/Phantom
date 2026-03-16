@@ -1,5 +1,7 @@
 #include "server/server_class.h"
 #include "logger/logger.h"
+
+
 Client::Client(const std::string& server_ip,
     const std::string& local_ip,
     uint16_t local_port,
@@ -13,7 +15,7 @@ Client::Client(const std::string& server_ip,
     , next_pair_id_(1)
 {
 }
-
+// Connect to the server, send the OTP, and start the splicing process, use otp as a unique identifier for the connection
 void Client::connectToServer(uint32_t otp)
 {
     auto self = shared_from_this();
@@ -98,6 +100,7 @@ void Client::connectToServer(uint32_t otp)
         });
 }
 
+// Splice loop to read from in_sock and write to out_sock, and vice versa, for the given pair_id
 void Client::splice_loop(std::shared_ptr<tcp::socket> in_sock,
     std::shared_ptr<tcp::socket> out_sock,
     uint64_t pair_id)

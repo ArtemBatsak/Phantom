@@ -26,7 +26,7 @@ public:
         uint16_t data_port,
         asio::io_context& io);
 
-    void connectToServer(uint32_t otp);
+	void connectToServer(uint32_t otp); // Connect to the server and start the splicing process
 
     void remove_pair(uint64_t pair_id);
     void remove_all_pairs();
