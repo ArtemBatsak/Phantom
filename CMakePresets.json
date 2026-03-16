@@ -36,8 +36,11 @@
             "displayName": "x64 Release",
             "inherits": "x64-debug",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release"
-            }
+              "CMAKE_BUILD_TYPE": "Release",
+              "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+              "VCPKG_HOST_TRIPLET": "x64-windows-static",
+              "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded"
+          }
         },
         {
             "name": "x86-debug",
