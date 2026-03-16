@@ -59,9 +59,6 @@ int main() {
     {
         try {
             asio::io_context io;
-            init_logging();
-            spdlog::info("Client starting up...");
-            const Config config = start_up();
 
             spdlog::info("Configuration loaded: SERVER_IP={}, LOCAL_IP={}, CONTROL_PORT={}, LOCAL_PORT={}, ID_CLIENT={}, POOL_SIZE={}",
                 config.SERVER_IP, config.LOCAL_IP, config.CONTROL_PORT, config.LOCAL_PORT, config.ID_CLIENT, config.POOL_SIZE);
@@ -111,7 +108,7 @@ int main() {
                                         return;
                                     }
 
-                                    // Чтение ответа: ID + client_port + data_port
+
                                     auto resp_buf = std::make_shared<std::array<uint32_t, 3>>();
                                     asio::async_read(*ssl_sock, asio::buffer(*resp_buf),
                                         [ssl_sock, resp_buf, &io, config](const asio::error_code& ec, std::size_t bytes_read) {
