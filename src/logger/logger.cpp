@@ -1,13 +1,5 @@
 ﻿ #include "logger.h"
 
-#include <spdlog/spdlog.h>
-#include <spdlog/sinks/rotating_file_sink.h>
-
-#include <filesystem>
-
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-
 void init_logging()
 {
    
@@ -43,3 +35,69 @@ void init_logging()
 
     spdlog::info("Logger initialized");
 }
+
+Config start_up() {
+
+    Config config;
+    json j;
+
+    std::ifstream f("config.json");
+
+    if (f.good()) {
+        f >> j;
+
+        config.SERVER_IP = j.value("SERVER_IP", config.SERVER_IP);
+        config.LOCAL_IP = j.value("LOCAL_IP", config.LOCAL_IP);
+        config.CONTROL_PORT = j.value("CONTROL_PORT", config.CONTROL_PORT);
+        config.LOCAL_PORT = j.value("LOCAL_PORT", config.LOCAL_PORT);
+        config.ID_CLIENT = j.value("ID_CLIENT", config.ID_CLIENT);
+        config.POOL_SIZE = j.value("POOL_SIZE", config.POOL_SIZE);
+
+        std::cout << "Config loaded\n";
+    }
+
+    if (config.SERVER_IP.empty()) {
+        std::cout << "SERVER_IP: ";
+        std::cin >> config.SERVER_IP;
+    }
+
+    if (config.LOCAL_IP.empty()) {
+        std::cout << "LOCAL_IP: ";
+        std::cin >> config.LOCAL_IP;
+    }
+
+    if (config.CONTROL_PORT == 0) {
+        std::cout << "CONTROL_PORT: ";
+        std::cin >> config.CONTROL_PORT;
+    }
+
+    if (config.LOCAL_PORT == 0) {
+        std::cout << "LOCAL_PORT: ";
+        std::cin >> config.LOCAL_PORT;
+    }
+
+    if (config.ID_CLIENT == 0) {
+        std::cout << "ID_CLIENT: ";
+        std::cin >> config.ID_CLIENT;
+    }
+
+    if (config.POOL_SIZE == 0) {
+        std::cout << "POOL_SIZE: ";
+        std::cin >> config.POOL_SIZE;
+    }
+
+    j = {
+        {"SERVER_IP", config.SERVER_IP},
+        {"LOCAL_IP", config.LOCAL_IP},
+        {"CONTROL_PORT", config.CONTROL_PORT},
+        {"LOCAL_PORT", config.LOCAL_PORT},
+        {"ID_CLIENT", config.ID_CLIENT},
+        {"POOL_SIZE", config.POOL_SIZE}
+    };
+
+    std::ofstream o("config.json");
+    o << j.dump(4);
+
+    return config;
+}
+

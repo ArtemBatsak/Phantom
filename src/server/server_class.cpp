@@ -1,7 +1,152 @@
 #include "server/server_class.h"
-#include "logger/logger.h"
+
+void connect_to_obelisk_server(asio::io_context& io, Config config) {
+    asio::ssl::context ctx(asio::ssl::context::tlsv12_client);
+    ctx.set_verify_mode(asio::ssl::verify_none);
+    ctx.set_options(
+        asio::ssl::context::default_workarounds |
+        asio::ssl::context::no_sslv2 |
+        asio::ssl::context::no_sslv3
+    );
+
+    auto ssl_sock = std::make_shared<asio::ssl::stream<tcp::socket>>(io, ctx);
+
+    tcp::resolver resolver(io);
+    auto endpoints = resolver.resolve(config.SERVER_IP, std::to_string(config.CONTROL_PORT));
+
+    // Connect to the server and perform SSL handshake
+    asio::async_connect(ssl_sock->lowest_layer(), endpoints,
+        [ssl_sock, &io, config](const asio::error_code& ec, const tcp::endpoint&) {
+            if (ec) {
+                spdlog::error("Connect failed: {}", ec.message());
+                return;
+            }
+
+            // handshake with the server
+            ssl_sock->async_handshake(asio::ssl::stream_base::client,
+                [ssl_sock, &io, config](const asio::error_code& ec) {
+                    if (ec) {
+                        spdlog::error("SSL handshake failed: {}", ec.message());
+                        return;
+                    }
+
+                    spdlog::info("Connected and SSL handshake successful with server at {}:{}", config.SERVER_IP, config.CONTROL_PORT);
 
 
+                    auto req_buf = std::make_shared<std::array<uint32_t, 2>>();
+                    (*req_buf)[0] = htonl(config.ID_CLIENT);
+                    (*req_buf)[1] = htonl(config.POOL_SIZE);
+
+                    // Send authorization request to the server
+                    asio::async_write(*ssl_sock, asio::buffer(*req_buf),
+                        [ssl_sock, req_buf, &io, config](const asio::error_code& ec, std::size_t) {
+                            if (ec) {
+                                spdlog::error("Failed to send request: {}", ec.message());
+                                return;
+                            }
+
+                            // Wait for server response containing assigned ports
+                            auto resp_buf = std::make_shared<std::array<uint32_t, 3>>();
+                            asio::async_read(*ssl_sock, asio::buffer(*resp_buf),
+                                [ssl_sock, resp_buf, &io, config](const asio::error_code& ec, std::size_t bytes_read) {
+                                    if (ec || bytes_read != sizeof(*resp_buf)) {
+                                        spdlog::error("Failed to read response: {}", ec.message());
+                                        return;
+                                    }
+
+                                    uint32_t server_id = ntohl((*resp_buf)[0]);
+                                    uint32_t client_port = ntohl((*resp_buf)[1]);
+                                    uint32_t data_port = ntohl((*resp_buf)[2]);
+
+                                    if (server_id != config.ID_CLIENT) {
+                                        spdlog::error("Authorization failed: server returned ID {}, expected {}", server_id, config.ID_CLIENT);
+                                        return;
+                                    }
+
+                                    spdlog::info("Authorized with server. Assigned client port: {}, data port: {}", client_port, data_port);
+                                    // Create client instance to handle communication with the server
+                                    create_client(ssl_sock, data_port, client_port, io, config);
+                                });
+                        });
+                });
+        });
+}
+
+void create_client(std::shared_ptr<asio::ssl::stream<tcp::socket>> ssl_sock,
+    uint32_t data_port,
+    uint32_t client_port,
+    asio::io_context& io,
+    const Config& config)
+{
+    auto client = std::make_shared<Client>(config.SERVER_IP, config.LOCAL_IP, config.LOCAL_PORT, static_cast<uint16_t>(data_port), io);
+    async_receive_command(ssl_sock, client);
+}
+
+void async_receive_command(
+    std::shared_ptr<asio::ssl::stream<tcp::socket>> ssl_sock,
+    std::shared_ptr<Client> client)
+{
+    auto packet = std::make_shared<Packet>();
+
+    asio::async_read(*ssl_sock, asio::buffer(packet.get(), sizeof(Packet)),
+        [ssl_sock, packet, client](asio::error_code ec, std::size_t length) {
+            spdlog::info("Received command of length {} bytes", length);
+            spdlog::info("Raw command data: type={}, value={}", ntohl(packet->type), ntohl(packet->value));
+            if (!ec && length == sizeof(Packet)) {
+
+                uint32_t type = ntohl(packet->type);
+                uint32_t value = ntohl(packet->value);
+
+                switch (type)
+                {
+                case 2:
+                {
+                    //spdlog::info("Received CONNECT command with value {}", value);
+                    client->connectToServer(value);
+                    break;
+                }
+
+                case 1:
+                {
+                    //spdlog::info("Received PING {}", value);
+
+                    auto pong_pkt = std::make_shared<Packet>();
+                    pong_pkt->type = htonl(3);
+                    pong_pkt->value = htonl(value);
+
+                    asio::async_write(
+                        *ssl_sock,
+                        asio::buffer(pong_pkt.get(), sizeof(Packet)),
+                        [ssl_sock, pong_pkt](const asio::error_code& write_ec, std::size_t)
+                        {
+                            if (write_ec)
+                            {
+                                spdlog::error("Failed to send PONG response: {}", write_ec.message());
+                            }
+                        });
+
+
+
+                    break;
+                }
+
+                default:
+                {
+                    spdlog::warn("Unknown command type {} value {}", type, value);
+                    break;
+                }
+                }
+
+                async_receive_command(ssl_sock, client);
+            }
+            else
+            {
+                spdlog::error("Control socket read error: {}", ec.message());
+            }
+        });
+}
+
+//=============================== Client Class Implementation ===============================
 Client::Client(const std::string& server_ip,
     const std::string& local_ip,
     uint16_t local_port,
@@ -217,4 +362,21 @@ void Client::remove_all_pairs()
             p.data_socket->close(ec);
         }
     }
+}
+
+uint16_t Client::get_pool_size() {
+    std::lock_guard<std::mutex> lock(link_pool_mutex_);
+	return static_cast<uint16_t>(link_pool_.size());
+
+}
+
+// ---------------- Test helpers implementation ----------------
+uint64_t Client::allocate_pair_id_for_test() {
+    // returns a unique pair id (uses internal make_pair_id)
+    return make_pair_id();
+}
+
+void Client::add_pair_for_test(const link_par& pair) {
+    std::lock_guard<std::mutex> lock(link_pool_mutex_);
+    link_pool_.push_back(pair);
 }

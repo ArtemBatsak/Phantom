@@ -1,6 +1,6 @@
 #pragma once
-
 #include <asio.hpp>
+#include <asio/ssl.hpp>
 #include <array>
 #include <vector>
 #include <memory>
@@ -9,8 +9,15 @@
 #include <atomic>
 #include <cstdint>
 #include <string>
+#include <fstream>
+#include "logger/logger.h"
 
 using asio::ip::tcp;
+
+struct Packet {
+    uint32_t type;
+    uint32_t value;
+};
 
 struct link_par {
     std::shared_ptr<tcp::socket> data_socket;
@@ -30,6 +37,11 @@ public:
 
     void remove_pair(uint64_t pair_id);
     void remove_all_pairs();
+    uint16_t get_pool_size();
+
+    // Test helpers (added to allow reliable unit testing of pair id and pool operations)
+    uint64_t allocate_pair_id_for_test();
+    void add_pair_for_test(const link_par& pair);
 
 private:
     void splice_loop(std::shared_ptr<tcp::socket> in_sock,
@@ -38,6 +50,7 @@ private:
 
     void start_splice(const link_par& pair);
     uint64_t make_pair_id();
+    
 
 private:
     std::string server_ip_;
@@ -50,3 +63,15 @@ private:
     std::mutex link_pool_mutex_;
     std::atomic<uint64_t> next_pair_id_;
 };
+
+void create_client(std::shared_ptr<asio::ssl::stream<tcp::socket>> ssl_sock,
+    uint32_t data_port,
+    uint32_t client_port,
+    asio::io_context& io,
+    const Config& config);
+
+void async_receive_command(
+    std::shared_ptr<asio::ssl::stream<tcp::socket>> ssl_sock,
+    std::shared_ptr<Client> client);
+
+void connect_to_obelisk_server(asio::io_context& io, Config config);
