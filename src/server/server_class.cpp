@@ -78,7 +78,7 @@ void create_client(std::shared_ptr<asio::ssl::stream<tcp::socket>> ssl_sock,
     asio::io_context& io,
     const Config& config)
 {
-    auto client = std::make_shared<Client>(config.SERVER_IP, config.LOCAL_IP, config.LOCAL_PORT, static_cast<uint16_t>(data_port), io);
+    auto client = std::make_shared<Client>(config.ID_CLIENT,config.SERVER_IP, config.LOCAL_IP, config.LOCAL_PORT, static_cast<uint16_t>(data_port), io);
     async_receive_command(ssl_sock, client);
 }
 
@@ -147,12 +147,14 @@ void async_receive_command(
 }
 
 //=============================== Client Class Implementation ===============================
-Client::Client(const std::string& server_ip,
+Client::Client(const uint32_t id,
+    const std::string& server_ip,
     const std::string& local_ip,
     uint16_t local_port,
     uint16_t data_port,
     asio::io_context& io)
-    : server_ip_(server_ip)
+	: id_(id)
+    , server_ip_(server_ip)
     , local_ip_(local_ip)
     , local_port_(local_port)
     , data_port_(data_port)
@@ -170,81 +172,60 @@ void Client::connectToServer(uint32_t otp)
     auto endpoints = resolver.resolve(server_ip_, std::to_string(data_port_));
 
     asio::async_connect(*data_sock, endpoints,
-        [this, self, data_sock, otp](const asio::error_code& ec, const tcp::endpoint&)
+        [self, data_sock, otp](const asio::error_code& ec, const tcp::endpoint&)
         {
             if (ec) {
-				spdlog::error("Failed to connect to server at {}:{}: {}", server_ip_, data_port_, ec.message());
-               data_sock->close();
-               return;
+                spdlog::error("Failed to connect: {}", ec.message());
+                return;
             }
-            
 
-            uint32_t net_otp = htonl(otp);
-            asio::async_write(*data_sock, asio::buffer(&net_otp, sizeof(net_otp)),
-                [this, self, data_sock](const asio::error_code& ec_write, std::size_t)
+            
+            auto pkt = std::make_shared<Packet>(htonl(self->id_), htonl(otp));
+
+            asio::async_write(*data_sock, asio::buffer(pkt.get(), sizeof(Packet)),
+                [self, data_sock, pkt](const asio::error_code& ec_write, std::size_t)
                 {
                     if (ec_write) {
-						spdlog::error("Failed to send OTP to server: {}", ec_write.message());
-                        data_sock->close();
+                        spdlog::error("Failed to send Packet: {}", ec_write.message());
                         return;
                     }
 
+                    
                     auto buffer = std::make_shared<std::array<char, 4096>>();
                     data_sock->async_read_some(asio::buffer(*buffer),
-                        [this, self, data_sock, buffer]
-                        (const asio::error_code& ec_read, std::size_t bytes_read)
+                        [self, data_sock, buffer](const asio::error_code& ec_read, std::size_t bytes_read)
                         {
-                            if (ec_read || bytes_read == 0) {
-								spdlog::error("Failed to read from server after OTP: {}", ec_read.message());
-                                data_sock->close();
-                                return;
-                            }
+                            if (ec_read || bytes_read == 0) return;
 
-                            auto client_sock = std::make_shared<tcp::socket>(io_);
+                            
+                            auto client_sock = std::make_shared<tcp::socket>(self->io_);
+
                             asio::error_code ec_addr;
-                            auto local_addr = asio::ip::make_address(local_ip_, ec_addr);
-                            if (ec_addr) {
-								spdlog::error("Invalid local IP address {}: {}", local_ip_, ec_addr.message());
-                                data_sock->close();
-                                return;
-                            }
+                            auto local_ep = tcp::endpoint(asio::ip::make_address(self->local_ip_, ec_addr), self->local_port_);
 
-                            tcp::endpoint local_ep(local_addr, local_port_);
                             client_sock->async_connect(local_ep,
-                                [this, self, data_sock, client_sock, buffer, bytes_read]
-                                (const asio::error_code& ec_conn)
+                                [self, data_sock, client_sock, buffer, bytes_read](const asio::error_code& ec_conn)
                                 {
-                                    if (ec_conn) {
-										spdlog::error("Failed to connect to local service at {}:{}: {}", local_ip_, local_port_, ec_conn.message());
-                                        data_sock->close();
-                                        return;
-                                    }
+                                    if (ec_conn) return;
 
-                                    asio::async_write(*client_sock,
-                                        asio::buffer(buffer->data(), bytes_read),
-                                        [this, self, data_sock, client_sock]
-                                        (const asio::error_code& ec_write2, std::size_t)
+                                   
+                                    asio::async_write(*client_sock, asio::buffer(buffer->data(), bytes_read),
+                                        [self, data_sock, client_sock](const asio::error_code& ec_write2, std::size_t)
                                         {
-                                            if (ec_write2) {
-												spdlog::error("Failed to send initial data to local service: {}", ec_write2.message());
-                                                client_sock->close();
-                                                data_sock->close();
-                                                return;
-                                            }
+                                            if (ec_write2) return;
 
                                             link_par pair;
                                             pair.data_socket = data_sock;
                                             pair.client_socket = client_sock;
-                                            pair.pair_id = make_pair_id();
+                                            pair.pair_id = self->make_pair_id();
 
-                                            start_splice(pair);
+                                            self->start_splice(pair);
                                         });
                                 });
                         });
                 });
         });
 }
-
 // Splice loop to read from in_sock and write to out_sock, and vice versa, for the given pair_id
 void Client::splice_loop(std::shared_ptr<tcp::socket> in_sock,
     std::shared_ptr<tcp::socket> out_sock,

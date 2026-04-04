@@ -27,11 +27,15 @@ struct link_par {
 
 class Client : public std::enable_shared_from_this<Client> {
 public:
-    Client(const std::string& server_ip,
+	Client(const uint32_t id,
+        const std::string& server_ip,
         const std::string& local_ip,
         uint16_t local_port,
         uint16_t data_port,
         asio::io_context& io);
+
+    friend class ClientTest;
+    friend class ObeliskIntegrationTest;
 
 	void connectToServer(uint32_t otp); // Connect to the server and start the splicing process
 
@@ -42,17 +46,19 @@ public:
     // Test helpers (added to allow reliable unit testing of pair id and pool operations)
     uint64_t allocate_pair_id_for_test();
     void add_pair_for_test(const link_par& pair);
-
-private:
+protected:
     void splice_loop(std::shared_ptr<tcp::socket> in_sock,
         std::shared_ptr<tcp::socket> out_sock,
         uint64_t pair_id);
 
     void start_splice(const link_par& pair);
+private:
+    
     uint64_t make_pair_id();
     
 
 private:
+    uint32_t id_;
     std::string server_ip_;
     std::string local_ip_;
     uint16_t local_port_;

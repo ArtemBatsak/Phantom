@@ -136,14 +136,14 @@ TEST(PhantomProject, PacketByteOrder) {
 
 TEST(PhantomProject, ClientInitialization) {
     asio::io_context io;
-    auto client = std::make_shared<Client>("127.0.0.1", "127.0.0.1", 8080, 9090, io);
+    auto client = std::make_shared<Client>(1,"127.0.0.1", "127.0.0.1", 8080, 9090, io);
 
     ASSERT_NE(client, nullptr); 
 }
 
 TEST(PhantomProject, PairIdStartsFromOne) {
     asio::io_context io;
-    auto client = std::make_shared<Client>("127.0.0.1", "127.0.0.1", 8080, 9090, io);
+    auto client = std::make_shared<Client>(1,"127.0.0.1", "127.0.0.1", 8080, 9090, io);
 
     // Use test helper to allocate pair ids deterministically
     uint64_t id1 = client->allocate_pair_id_for_test();
@@ -156,7 +156,7 @@ TEST(PhantomProject, PairIdStartsFromOne) {
 
 TEST(ClientTest, RemoveAllPairsClearsPool) {
     asio::io_context io;
-    auto client = std::make_shared<Client>("127.0.0.1", "127.0.0.1", 8080, 9090, io);
+    auto client = std::make_shared<Client>(1,"127.0.0.1", "127.0.0.1", 8080, 9090, io);
 
     // Create a fake pair and insert into pool using test helper
     link_par fake_pair;
@@ -175,7 +175,7 @@ TEST(ClientTest, RemoveAllPairsClearsPool) {
 
 TEST(ClientTest, RemovePairRemovesSpecific) {
     asio::io_context io;
-    auto client = std::make_shared<Client>("127.0.0.1", "127.0.0.1", 8080, 9090, io);
+    auto client = std::make_shared<Client>(1,"127.0.0.1", "127.0.0.1", 8080, 9090, io);
 
     // Add two pairs
     link_par p1, p2;
@@ -204,7 +204,7 @@ TEST(ClientTest, LocalIpValidation) {
     asio::io_context io;
 
    
-    auto client_bad = std::make_shared<Client>("127.0.0.1", "999.999.999.999", 8080, 9090, io);
+    auto client_bad = std::make_shared<Client>(1,"127.0.0.1", "999.999.999.999", 8080, 9090, io);
 
     asio::error_code ec;
     asio::ip::make_address("999.999.999.999", ec);
@@ -246,4 +246,146 @@ TEST(ObeliskIntegrationTest, ShouldReceiveCorrectPorts) {
     }
 
     EXPECT_EQ(mock_server->id, my_id) << "Server received wrong ID!";
+}
+
+
+
+TEST(ClientTest, RemoveAllPairsClosesEverything) {
+    asio::io_context io;
+    auto client = std::make_shared<Client>(1, "127.0.0.1", "127.0.0.1", 9000, 5000, io);
+
+    
+    for (int i = 0; i < 5; ++i) {
+        link_par p;
+        p.pair_id = i;
+        p.client_socket = std::make_shared<tcp::socket>(io);
+        p.data_socket = std::make_shared<tcp::socket>(io);
+
+        
+        p.client_socket->open(tcp::v4());
+        p.data_socket->open(tcp::v4());
+
+        client->add_pair_for_test(p);
+    }
+
+    EXPECT_EQ(client->get_pool_size(), 5);
+
+    
+    client->remove_all_pairs();
+
+    
+    EXPECT_EQ(client->get_pool_size(), 0); 
+  
+}
+
+class ClientTestWrapper : public Client {
+public:
+    using Client::Client;
+
+    void test_start_splice(const link_par& pair) {
+        start_splice(pair);
+    }
+};
+
+
+class TcpServerMock {
+public:
+    TcpServerMock(asio::io_context& io, uint16_t port)
+        : acceptor_(io, tcp::endpoint(tcp::v4(), port)), socket_(io) {
+        acceptor_.set_option(tcp::acceptor::reuse_address(true));
+    }
+
+    void accept_one() {
+        acceptor_.accept(socket_);
+    }
+
+    tcp::socket& socket() { return socket_; }
+
+private:
+    tcp::acceptor acceptor_;
+    tcp::socket socket_;
+};
+
+
+TEST(ObeliskSplicing, DataIntegrityTransfer) {
+    asio::io_context io;
+
+    // Используем случайные порты для теста
+    const uint16_t MOCK_LOCAL_SERVICE_PORT = 19999;
+    const uint16_t MOCK_SERVER_DATA_PORT = 18888;
+    const size_t TEST_DATA_SIZE = 5 * 1024 * 1024 ; 
+
+    // Создаем клиента
+    auto client = std::make_shared<ClientTestWrapper>(
+        1, "127.0.0.1", "127.0.0.1",
+        MOCK_LOCAL_SERVICE_PORT, MOCK_SERVER_DATA_PORT, io
+    );
+
+    // Запускаем "Локальный сервис" и "Сервер данных"
+    TcpServerMock local_service(io, MOCK_LOCAL_SERVICE_PORT);
+    TcpServerMock server_data_entry(io, MOCK_SERVER_DATA_PORT);
+
+    // Подготавливаем сокеты для сплайсинга
+    auto proxy_to_server = std::make_shared<tcp::socket>(io);
+    auto proxy_to_local = std::make_shared<tcp::socket>(io);
+
+    // Соединяем цепочку
+    std::thread connector_thread([&]() {
+        // Прокси подключается к серверу и к локальному сервису
+        proxy_to_server->connect(tcp::endpoint(asio::ip::make_address("127.0.0.1"), MOCK_SERVER_DATA_PORT));
+        proxy_to_local->connect(tcp::endpoint(asio::ip::make_address("127.0.0.1"), MOCK_LOCAL_SERVICE_PORT));
+        });
+
+    server_data_entry.accept_one();
+    local_service.accept_one();
+    connector_thread.join();
+
+    
+    link_par pair;
+    pair.pair_id = 999;
+    pair.data_socket = proxy_to_server;
+    pair.client_socket = proxy_to_local;
+    client->test_start_splice(pair);
+
+    // Генерируем данные для проверки
+    std::vector<char> sent_payload(TEST_DATA_SIZE);
+    std::iota(sent_payload.begin(), sent_payload.end(), 0); // Заполняем паттерном
+
+    std::vector<char> received_payload(TEST_DATA_SIZE, 0);
+
+    // Запускаем io_context в отдельном потоке для асинхронной работы
+    std::thread io_thread([&io]() {
+        asio::io_context::work work(io);
+        io.run();
+        });
+
+    // Отправляем данные через "Сервер" и принимаем в "Локальном сервисе"
+    std::thread receiver_thread([&]() {
+        size_t total_received = 0;
+        while (total_received < TEST_DATA_SIZE) {
+            asio::error_code ec;
+            size_t n = local_service.socket().read_some(
+                asio::buffer(received_payload.data() + total_received, TEST_DATA_SIZE - total_received), ec);
+            if (ec) break;
+            total_received += n;
+        }
+        });
+
+    // Имитируем отправку данных со стороны сервера в прокси
+    asio::write(server_data_entry.socket(), asio::buffer(sent_payload));
+
+    receiver_thread.join();
+
+    // ПРОВЕРКИ
+    EXPECT_EQ(sent_payload, received_payload) << "Data mismatch after splicing!";
+    EXPECT_EQ(client->get_pool_size(), 1);
+
+    // Тест на корректное закрытие
+    client->remove_all_pairs();
+    EXPECT_EQ(client->get_pool_size(), 0);
+    EXPECT_FALSE(proxy_to_server->is_open());
+
+    // Завершение
+    io.stop();
+    if (io_thread.joinable()) io_thread.join();
 }
