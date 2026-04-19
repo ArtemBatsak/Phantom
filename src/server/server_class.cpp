@@ -231,37 +231,56 @@ void Client::splice_loop(std::shared_ptr<tcp::socket> in_sock,
     std::shared_ptr<tcp::socket> out_sock,
     uint64_t pair_id)
 {
-    auto self = shared_from_this();
-    auto buffer = std::make_shared<std::array<char, 4096>>();
+        auto self = shared_from_this();
 
-    in_sock->async_read_some(asio::buffer(*buffer),
-        [this, self, in_sock, out_sock, buffer, pair_id]
-        (const asio::error_code& ec, std::size_t bytes)
-        {
-            if (ec) {
-                spdlog::error("Splice loop read error for pair {}: {}", pair_id, ec.message());
-                remove_pair(pair_id);
-                return;
-            }
+        auto buffer = std::make_shared<std::array<char, 64 * 1024>>();
 
-            if (bytes == 0) {
-                spdlog::info("Connection closed for pair {}", pair_id);
-                remove_pair(pair_id);
-                return;
-            }
+        
+        auto do_read = std::make_shared<std::function<void()>>();
 
-            asio::async_write(*out_sock, asio::buffer(buffer->data(), bytes),
-                [this, self, in_sock, out_sock, buffer, pair_id]
-                (const asio::error_code& ec_write, std::size_t)
-                {
-                    if (ec_write) {
-                        remove_pair(pair_id);
-                        return;
+        *do_read = [self, in_sock, out_sock, pair_id, buffer, do_read]() mutable
+            {
+                in_sock->async_read_some(
+                    asio::buffer(*buffer),
+                    [self, in_sock, out_sock, pair_id, buffer, do_read]
+                    (const asio::error_code& ec, std::size_t bytes)
+                    {
+                        if (ec || bytes == 0) {
+                            if (ec != asio::error::eof &&
+                                ec != asio::error::operation_aborted) {
+                                spdlog::error("Pair {}: read error ({}): {}",
+                                    pair_id, ec.value(), ec.message());
+                            }
+                            self->remove_pair(pair_id);
+                            return;
+                        }
+
+                       
+                        asio::async_write(
+                            *out_sock,
+                            asio::buffer(buffer->data(), bytes),
+                            [self, pair_id, do_read]
+                            (const asio::error_code& ec_write, std::size_t)
+                            {
+                                if (ec_write) {
+                                    if (ec_write != asio::error::eof &&
+                                        ec_write != asio::error::operation_aborted) {
+                                        spdlog::error("Pair {}: write error ({}): {}",
+                                            pair_id, ec_write.value(), ec_write.message());
+                                    }
+                                    self->remove_pair(pair_id);
+                                    return;
+                                }
+
+                                (*do_read)(); 
+                            }
+                        );
                     }
+                );
+            };
 
-                    splice_loop(in_sock, out_sock, pair_id);
-                });
-        });
+        (*do_read)();
+    
 }
 
 void Client::start_splice(const link_par& pair)

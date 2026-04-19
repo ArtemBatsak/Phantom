@@ -46,7 +46,25 @@ int main() {
 
 			connect_to_obelisk_server(io,config);
 
-            io.run();
+            // --- Thread pool ---
+            unsigned int num_threads = std::thread::hardware_concurrency();
+            if (num_threads == 0)
+                num_threads = 1;
+			spdlog::info("Starting {} worker threads", num_threads);
+            std::vector<std::thread> threads;
+            threads.reserve(num_threads);
+
+            for (unsigned int i = 0; i < num_threads; ++i)
+            {
+                threads.emplace_back([&io]()
+                    {
+                        io.run();
+                    });
+            }
+
+            // --- Wait for workers ---
+            for (auto& t : threads)
+                t.join();
         }
         catch (const std::exception& e) {
             spdlog::error("Exception: {}", e.what());

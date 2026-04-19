@@ -68,6 +68,8 @@ private:
     std::vector<link_par> link_pool_;
     std::mutex link_pool_mutex_;
     std::atomic<uint64_t> next_pair_id_;
+    static constexpr std::size_t BuffSize = 64 * 1024;
+    static constexpr std::size_t MaxQueuedBytes = 4 * 1024 * 1024;
 };
 
 void create_client(std::shared_ptr<asio::ssl::stream<tcp::socket>> ssl_sock,
