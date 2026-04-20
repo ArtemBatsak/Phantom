@@ -71,6 +71,7 @@ int main() {
         }
 		// Wait before retrying connection to the server
         std::this_thread::sleep_for(std::chrono::seconds(5));
+
     }
     
 
