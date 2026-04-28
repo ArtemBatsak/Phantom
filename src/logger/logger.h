@@ -20,9 +20,11 @@ struct Config {
     uint16_t LOCAL_PORT = 0;
     uint32_t ID_CLIENT = 0;
     uint32_t POOL_SIZE = 0;
+    std::string CERTIFICATE = "";
+    std::string PRIVATE_KEY = "";
+    std::string TRUSTED_SERVER_CERTIFICATE = "";
 };
 
 Config start_up();
 
 void init_logging();
-

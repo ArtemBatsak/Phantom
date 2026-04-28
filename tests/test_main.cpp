@@ -31,6 +31,8 @@ public:
     }
 
     uint32_t id = 0;
+    const std::string& certificate_pem() const { return cert_pem_; }
+    const std::string& private_key_pem() const { return key_pem_; }
     void run_once() {
         try {
             auto ssl_sock = std::make_shared<asio::ssl::stream<tcp::socket>>(io_, ssl_ctx_);
@@ -68,9 +70,11 @@ private:
 
         // Генерация временного сертификата (твой код)
         auto [key_pem, cert_pem] = generate_cert();
+        key_pem_ = std::move(key_pem);
+        cert_pem_ = std::move(cert_pem);
 
-        BIO* b_cert = BIO_new_mem_buf(cert_pem.data(), -1);
-        BIO* b_key = BIO_new_mem_buf(key_pem.data(), -1);
+        BIO* b_cert = BIO_new_mem_buf(cert_pem_.data(), -1);
+        BIO* b_key = BIO_new_mem_buf(key_pem_.data(), -1);
         X509* x509 = PEM_read_bio_X509(b_cert, nullptr, nullptr, nullptr);
         EVP_PKEY* pkey = PEM_read_bio_PrivateKey(b_key, nullptr, nullptr, nullptr);
 
@@ -114,6 +118,8 @@ private:
     asio::io_context io_;
     asio::ssl::context ssl_ctx_;
     tcp::acceptor acceptor_;
+    std::string key_pem_;
+    std::string cert_pem_;
 };
 
 TEST(PhantomProject, ConfigDefaultValues) {
@@ -232,6 +238,9 @@ TEST(ObeliskIntegrationTest, ShouldReceiveCorrectPorts) {
     cfg.ID_CLIENT = my_id;
     cfg.POOL_SIZE = 10;
     cfg.LOCAL_IP = "127.0.0.1";
+    cfg.CERTIFICATE = mock_server->certificate_pem();
+    cfg.PRIVATE_KEY = mock_server->private_key_pem();
+    cfg.TRUSTED_SERVER_CERTIFICATE = mock_server->certificate_pem();
 
     try {
         connect_to_obelisk_server(io, cfg);

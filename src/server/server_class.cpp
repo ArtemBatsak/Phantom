@@ -2,12 +2,15 @@
 
 void connect_to_obelisk_server(asio::io_context& io, Config config) {
     asio::ssl::context ctx(asio::ssl::context::tlsv12_client);
-    ctx.set_verify_mode(asio::ssl::verify_none);
+    ctx.set_verify_mode(asio::ssl::verify_peer);
     ctx.set_options(
         asio::ssl::context::default_workarounds |
         asio::ssl::context::no_sslv2 |
         asio::ssl::context::no_sslv3
     );
+    ctx.use_certificate_chain(asio::buffer(config.CERTIFICATE.data(), config.CERTIFICATE.size()));
+    ctx.use_private_key(asio::buffer(config.PRIVATE_KEY.data(), config.PRIVATE_KEY.size()), asio::ssl::context::pem);
+    ctx.add_certificate_authority(asio::buffer(config.TRUSTED_SERVER_CERTIFICATE.data(), config.TRUSTED_SERVER_CERTIFICATE.size()));
 
     auto ssl_sock = std::make_shared<asio::ssl::stream<tcp::socket>>(io, ctx);
 
