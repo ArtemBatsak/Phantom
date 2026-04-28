@@ -1,15 +1,14 @@
 #include <gtest/gtest.h>
 #include <asio.hpp>
 #include <asio/ssl.hpp>
-#ifdef _WIN32
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #include <openssl/evp.h>
 #include <openssl/bn.h>
-#endif
 
 #include "server/server_class.h" 
 #include "logger/logger.h"
@@ -65,6 +64,21 @@ public:
     }
 
 private:
+    static bool add_cert_extension(X509* cert, int nid, const char* value) {
+        X509V3_CTX ctx;
+        X509V3_set_ctx_nodb(&ctx);
+        X509V3_set_ctx(&ctx, cert, cert, nullptr, nullptr, 0);
+
+        X509_EXTENSION* ext = X509V3_EXT_conf_nid(nullptr, &ctx, nid, const_cast<char*>(value));
+        if (!ext) {
+            return false;
+        }
+
+        const int add_res = X509_add_ext(cert, ext, -1);
+        X509_EXTENSION_free(ext);
+        return add_res == 1;
+    }
+
     void setup_ssl() {
         ssl_ctx_.set_options(asio::ssl::context::default_workarounds | asio::ssl::context::no_sslv2);
 
@@ -88,7 +102,7 @@ private:
     }
 
     std::pair<std::string, std::string> generate_cert() {
-        
+        // Create a self-signed certificate suitable for verify_peer validation.
         BIGNUM* bn = BN_new();
         BN_set_word(bn, RSA_F4);
         RSA* rsa = RSA_new();
@@ -96,10 +110,25 @@ private:
         EVP_PKEY* pkey = EVP_PKEY_new();
         EVP_PKEY_assign_RSA(pkey, rsa);
         X509* x509 = X509_new();
+
+        X509_set_version(x509, 2);
         ASN1_INTEGER_set(X509_get_serialNumber(x509), 1);
         X509_gmtime_adj(X509_get_notBefore(x509), 0);
         X509_gmtime_adj(X509_get_notAfter(x509), 31536000L);
+
+        X509_NAME* subject = X509_NAME_new();
+        X509_NAME_add_entry_by_txt(subject, "C", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("US"), -1, -1, 0);
+        X509_NAME_add_entry_by_txt(subject, "O", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("Phantom Test"), -1, -1, 0);
+        X509_NAME_add_entry_by_txt(subject, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("127.0.0.1"), -1, -1, 0);
+        X509_set_subject_name(x509, subject);
+        X509_set_issuer_name(x509, subject);
+        X509_NAME_free(subject);
+
         X509_set_pubkey(x509, pkey);
+        add_cert_extension(x509, NID_basic_constraints, "critical,CA:TRUE");
+        add_cert_extension(x509, NID_key_usage, "critical,keyCertSign,digitalSignature,keyEncipherment");
+        add_cert_extension(x509, NID_ext_key_usage, "serverAuth");
+        add_cert_extension(x509, NID_subject_alt_name, "IP:127.0.0.1,DNS:localhost");
         X509_sign(x509, pkey, EVP_sha256());
 
         BIO* b_key = BIO_new(BIO_s_mem()), * b_cert = BIO_new(BIO_s_mem());
